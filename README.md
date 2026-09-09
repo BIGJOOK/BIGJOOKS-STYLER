@@ -8,6 +8,8 @@ chats beautiful. It detects speaker lines (`**Name**: dialogue` or plain
 single byte of your stored chat, injecting nothing into your prompt, and
 costing zero tokens.
 
+Vibe coded with GLM 5.3 and Gemini 3.8 flash works best with BIGJOOKS lite preset
+
 ## Features
 
 ### 🎨 Per-Speaker Colors
