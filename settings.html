@@ -1,0 +1,58 @@
+<div id="bigjooks_styler_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>BIGJOOKS Styler</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <label class="checkbox_label">
+                <input type="checkbox" id="bj_enable">
+                <span>Enabled (master switch)</span>
+            </label>
+            <label class="checkbox_label">
+                <input type="checkbox" id="bj_colors">
+                <span>Speaker colors (name tag + dialogue)</span>
+            </label>
+            <label class="checkbox_label">
+                <input type="checkbox" id="bj_dividers">
+                <span>Dividers between dialogue and narration</span>
+            </label>
+            <div class="marginT5">
+                <small class="notes">Divider style</small>
+                <select id="bj_divider_style" class="text_pole">
+                    <option value="thin">Thin</option>
+                    <option value="dashed">Dashed</option>
+                    <option value="fade">Fade</option>
+                    <option value="none">None</option>
+                </select>
+            </div>
+            <label class="checkbox_label">
+                <input type="checkbox" id="bj_avatars">
+                <span>Avatars for known speakers</span>
+            </label>
+            <div class="marginT5">
+                <small class="notes">Avatar size</small>
+                <div class="displayFlex alignItemsCenter gap5">
+                    <input type="range" id="bj_avatar_size" class="neutrals" min="1" max="5" step="1" value="2">
+                    <span id="bj_avatar_size_label">Medium</span>
+                </div>
+            </div>
+            <hr>
+            <div class="marginT10 displayFlex flexColumn gap10">
+                <div class="displayFlex gap10">
+                    <div class="menu_button displayFlex alignItemsCenter justifyContentCenter gap5 flex1" id="bj_drawer_open_colors" title="Open Color Overrides Library">
+                        <i class="fa-solid fa-palette"></i>
+                        <span>Color library</span>
+                    </div>
+                    <div class="menu_button displayFlex alignItemsCenter justifyContentCenter gap5 flex1" id="bj_drawer_open_portraits" title="Open Speaker Portraits Gallery">
+                        <i class="fa-solid fa-images"></i>
+                        <span>Portrait gallery</span>
+                    </div>
+                </div>
+                <small class="notes" style="text-align: center; opacity: 0.75;">
+                    Manage speaker colors and portraits in a floating dark-glass library.
+                </small>
+            </div>
+        </div>
+    </div>
+</div>

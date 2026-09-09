@@ -1,0 +1,67 @@
+<div id="bj_modal_overlay" class="bj-modal-overlay" style="display:none">
+    <div class="bj-modal-panel">
+        <!-- Header -->
+        <div class="bj-modal-header">
+            <div class="bj-modal-title-wrap">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span class="bj-modal-title">BIGJOOKS Styler</span>
+            </div>
+            <div class="bj-modal-tabs">
+                <button type="button" class="bj-modal-tab active" data-tab="colors">
+                    <i class="fa-solid fa-palette"></i>
+                    <span>Color Overrides</span>
+                </button>
+                <button type="button" class="bj-modal-tab" data-tab="portraits">
+                    <i class="fa-solid fa-image-portrait"></i>
+                    <span>Speaker Portraits</span>
+                </button>
+            </div>
+            <button type="button" class="bj-modal-close" id="bj_modal_close" title="Close (Esc)">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <!-- Folder Bar -->
+        <div class="bj-modal-folder-bar" id="bj_modal_folder_bar">
+            <!-- Rendered dynamically by renderFolderBar() -->
+        </div>
+
+        <!-- Toolbar -->
+        <div class="bj-modal-toolbar">
+            <div class="bj-toolbar-search-wrap">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="bj_modal_search" class="bj-input" placeholder="Search color overrides...">
+            </div>
+            <div class="bj-toolbar-controls">
+                <div class="bj-pagination-wrap">
+                    <button type="button" class="bj-tool-btn" id="bj_modal_prev" title="Previous page">
+                        <i class="fa-solid fa-chevron-left"></i>
+                    </button>
+                    <span class="bj-page-indicator" id="bj_modal_page_label">1 / 1</span>
+                    <button type="button" class="bj-tool-btn" id="bj_modal_next" title="Next page">
+                        <i class="fa-solid fa-chevron-right"></i>
+                    </button>
+                </div>
+                <button type="button" class="bj-btn bj-btn-primary" id="bj_modal_add">
+                    <i class="fa-solid fa-plus"></i>
+                    <span id="bj_modal_add_label">Add Override</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Scrollable Card List Body -->
+        <div class="bj-modal-body" id="bj_modal_body">
+            <!-- Cards rendered dynamically via JS -->
+        </div>
+
+        <!-- Footer -->
+        <div class="bj-modal-footer">
+            <div class="bj-footer-hint" id="bj_modal_footer_hint">
+                Color overrides take precedence over the automatic palette. Comma-separate names for aliases.
+            </div>
+            <div class="bj-footer-count" id="bj_modal_footer_count">
+                0 overrides
+            </div>
+        </div>
+    </div>
+</div>
