@@ -4,7 +4,7 @@ import { extension_settings, renderExtensionTemplateAsync } from '../../../exten
 import { getContext } from '../../../st-context.js';
 import { Popup, POPUP_TYPE, POPUP_RESULT } from '../../../popup.js';
 import { debounce } from '../../../utils.js';
-import { decorateMessage, decorateAll } from './decorate.js';
+import { decorateMessage, decorateAll, resolveSpeakerColor } from './decorate.js';
 
 const MODULE_KEY = 'bigjooksStyler';
 const LOG_PREFIX = '[BIGJOOKS]';
@@ -50,6 +50,15 @@ function getSettings() {
     }
     if (typeof store.colorOverrides !== 'object' || store.colorOverrides === null) {
         store.colorOverrides = {};
+    }
+    if (typeof store.nameColorOverrides !== 'object' || store.nameColorOverrides === null) {
+        store.nameColorOverrides = {};
+    }
+    if (!Array.isArray(store.nameColorFolders)) {
+        store.nameColorFolders = ['Default'];
+    }
+    if (!store.nameColorFolders.includes('Default')) {
+        store.nameColorFolders.unshift('Default');
     }
     if (!Array.isArray(store.portraits)) store.portraits = [];
     if (!Array.isArray(store.colorFolders)) {
@@ -141,21 +150,76 @@ function processPortraitFile(file) {
    Floating Glass Modal: State, Filtering, and Pagination
    ══════════════════════════════════════════════════════════════════ */
 
-const OVERRIDES_PER_PAGE = 5;
-let overridePage = 0;
-let overrideSearchTerm = '';
-
-const PORTRAITS_PER_PAGE = 5;
-let portraitPage = 0;
-let portraitSearchTerm = '';
-
-let activeModalTab = 'colors'; // 'colors' | 'portraits'
-
 const DEFAULT_FOLDER = 'Default';
 const ALL_FOLDERS = 'All';
 
-let activeColorFolder = ALL_FOLDERS;
-let activePortraitFolder = ALL_FOLDERS;
+/**
+ * One entry per library tab. The modal controller is driven entirely by these
+ * descriptors — tab switching, folder bars, card lists, search, pagination and
+ * the add flow all read from them, so a tab is configuration plus a card
+ * builder, not a new pile of if/else arms.
+ *
+ * kind 'colorMap'    — entries in a { name: { hex, folder } } settings map
+ *                      (overridesKey/foldersKey say which map and folder list)
+ * kind 'portraitList'— entries in the settings.portraits array
+ */
+const TABS = Object.freeze({
+    colors: Object.freeze({
+        kind: 'colorMap',
+        overridesKey: 'colorOverrides',
+        foldersKey: 'colorFolders',
+        folderWord: 'Color',
+        cardClass: 'bj-color-card',
+        focusField: '.bj-override-name',
+        perPage: 5,
+        addLabel: 'Add Color',
+        searchPlaceholder: 'Search dialogue colors...',
+        hint: 'Dialogue colors take precedence over the automatic palette. Comma-separate names for aliases.',
+        emptyIcon: 'fa-palette',
+        emptyTitle: 'No dialogue colors found',
+        emptyDesc: 'Click "+ Add Color" to color any speaker\'s dialogue.',
+        itemWord: 'override',
+    }),
+    names: Object.freeze({
+        kind: 'colorMap',
+        overridesKey: 'nameColorOverrides',
+        foldersKey: 'nameColorFolders',
+        folderWord: 'Name Color',
+        cardClass: 'bj-name-card',
+        focusField: '.bj-override-name',
+        perPage: 5,
+        addLabel: 'Add Name Color',
+        searchPlaceholder: 'Search name colors...',
+        hint: 'Name colors recolor the speaker tag only — dialogue keeps its own color. Unlisted names match their dialogue color.',
+        emptyIcon: 'fa-signature',
+        emptyTitle: 'No name colors found',
+        emptyDesc: 'Click "+ Add Name Color" to give any speaker\'s name its own color.',
+        itemWord: 'name color',
+    }),
+    portraits: Object.freeze({
+        kind: 'portraitList',
+        folderWord: 'Portrait',
+        cardClass: 'bj-portrait-card',
+        focusField: '.bj-portrait-names',
+        perPage: 5,
+        addLabel: 'Add Portrait',
+        searchPlaceholder: 'Search speaker portraits...',
+        hint: 'Give any speaker a picture without making a character card. Comma-separate names for aliases.',
+        emptyIcon: 'fa-image-portrait',
+        emptyTitle: 'No portraits found',
+        emptyDesc: 'Click "+ Add Portrait" to assign an avatar thumbnail to any speaker.',
+        itemWord: 'portrait',
+    }),
+});
+
+/** Transient per-tab UI state: active folder chip, page, search box contents. */
+const tabUi = {
+    colors: { folder: ALL_FOLDERS, page: 0, search: '' },
+    names: { folder: ALL_FOLDERS, page: 0, search: '' },
+    portraits: { folder: ALL_FOLDERS, page: 0, search: '' },
+};
+
+let activeModalTab = 'colors'; // 'colors' | 'names' | 'portraits'
 
 /**
  * Escapes characters for HTML attributes and text to prevent injection.
@@ -186,24 +250,31 @@ function parseColorOverride(val) {
 }
 
 /**
- * Retrieves the full list of folders for color overrides, guaranteeing 'Default'
- * is first and capturing any folders referenced by existing entries.
+ * Folder list for a color-map tab (dialogue or name colors), guaranteeing
+ * 'Default' is first and capturing any folders referenced by existing entries
+ * (the safety net that never loses a folder an entry still points at).
+ *
+ * @param {'colors'|'names'} tab
  */
-function getColorFolders() {
+function getMapFolders(tab) {
+    const { overridesKey, foldersKey } = TABS[tab];
     const settings = getSettings();
-    if (!Array.isArray(settings.colorFolders)) {
-        settings.colorFolders = Array.isArray(settings.folders) ? [...settings.folders] : [DEFAULT_FOLDER];
-    }
-    if (!settings.colorFolders.includes(DEFAULT_FOLDER)) {
-        settings.colorFolders.unshift(DEFAULT_FOLDER);
-    }
-    for (const val of Object.values(settings.colorOverrides)) {
+    if (!Array.isArray(settings[foldersKey])) settings[foldersKey] = [DEFAULT_FOLDER];
+    if (!settings[foldersKey].includes(DEFAULT_FOLDER)) settings[foldersKey].unshift(DEFAULT_FOLDER);
+    for (const val of Object.values(settings[overridesKey])) {
         const folder = typeof val === 'object' && val?.folder ? String(val.folder).trim() : null;
-        if (folder && !settings.colorFolders.includes(folder)) {
-            settings.colorFolders.push(folder);
-        }
+        if (folder && !settings[foldersKey].includes(folder)) settings[foldersKey].push(folder);
     }
-    return settings.colorFolders;
+    return settings[foldersKey];
+}
+
+/**
+ * The folder list for whichever side a tab manages.
+ *
+ * @param {'colors'|'names'|'portraits'} tab
+ */
+function getFoldersFor(tab) {
+    return TABS[tab].kind === 'portraitList' ? getPortraitFolders() : getMapFolders(tab);
 }
 
 /**
@@ -228,60 +299,44 @@ function getPortraitFolders() {
 }
 
 /**
- * Adds a new category folder to either colors or portraits. Returns true on success.
+ * Adds a new category folder to whichever tab is active. Returns true on success.
  *
  * @param {string} name
- * @param {'colors'|'portraits'} type
+ * @param {'colors'|'names'|'portraits'} tab
  */
-function addFolder(name, type = activeModalTab) {
+function addFolder(name, tab = activeModalTab) {
     const trimmed = String(name ?? '').trim();
     if (!trimmed) return false;
     if (trimmed.toLowerCase() === ALL_FOLDERS.toLowerCase()) {
         if (typeof toastr !== 'undefined') toastr.warning(`"${ALL_FOLDERS}" is a reserved filter.`);
         return false;
     }
-    const folders = type === 'colors' ? getColorFolders() : getPortraitFolders();
+    const d = TABS[tab];
+    const folders = getFoldersFor(tab);
     if (folders.some(f => f.toLowerCase() === trimmed.toLowerCase())) {
         if (typeof toastr !== 'undefined') toastr.info(`Folder "${trimmed}" already exists.`);
         return false;
     }
     folders.push(trimmed);
-    if (type === 'colors') {
-        getSettings().colorFolders = folders;
-    } else {
-        getSettings().portraitFolders = folders;
-    }
+    if (d.kind === 'portraitList') getSettings().portraitFolders = folders;
+    else getSettings()[d.foldersKey] = folders;
     persistAndRedecorate();
     return true;
 }
 
 /**
- * Deletes a custom category folder from either colors or portraits.
- * All entries inside are reassigned to 'Default'.
+ * Deletes a custom category folder from whichever tab is active.
+ * All entries inside are reassigned to 'Default' — never deleted.
  *
  * @param {string} folderName
- * @param {'colors'|'portraits'} type
+ * @param {'colors'|'names'|'portraits'} tab
  */
-function deleteFolder(folderName, type = activeModalTab) {
+function deleteFolder(folderName, tab = activeModalTab) {
     if (folderName === DEFAULT_FOLDER || folderName === ALL_FOLDERS) return;
     const settings = getSettings();
+    const d = TABS[tab];
 
-    if (type === 'colors') {
-        const folders = getColorFolders();
-        const index = folders.indexOf(folderName);
-        if (index === -1) return;
-
-        // Reassign color overrides in this folder to Default
-        for (const [key, val] of Object.entries(settings.colorOverrides)) {
-            const parsed = parseColorOverride(val);
-            if (parsed.folder === folderName) {
-                settings.colorOverrides[key] = { hex: parsed.hex, folder: DEFAULT_FOLDER };
-            }
-        }
-        folders.splice(index, 1);
-        settings.colorFolders = folders;
-        if (activeColorFolder === folderName) activeColorFolder = DEFAULT_FOLDER;
-    } else {
+    if (d.kind === 'portraitList') {
         const folders = getPortraitFolders();
         const index = folders.indexOf(folderName);
         if (index === -1) return;
@@ -294,33 +349,51 @@ function deleteFolder(folderName, type = activeModalTab) {
         }
         folders.splice(index, 1);
         settings.portraitFolders = folders;
-        if (activePortraitFolder === folderName) activePortraitFolder = DEFAULT_FOLDER;
+    } else {
+        const folders = getMapFolders(tab);
+        const index = folders.indexOf(folderName);
+        if (index === -1) return;
+
+        // Reassign overrides in this folder to Default
+        for (const [key, val] of Object.entries(settings[d.overridesKey])) {
+            const parsed = parseColorOverride(val);
+            if (parsed.folder === folderName) {
+                settings[d.overridesKey][key] = { hex: parsed.hex, folder: DEFAULT_FOLDER };
+            }
+        }
+        folders.splice(index, 1);
+        settings[d.foldersKey] = folders;
     }
+    if (tabUi[tab].folder === folderName) tabUi[tab].folder = DEFAULT_FOLDER;
 
     persistAndRedecorate();
     renderFolderBar();
     renderActiveModalView();
 }
 
-function filteredOverrideEntries() {
-    const term = overrideSearchTerm.trim().toLowerCase();
-    const activeFolder = activeColorFolder;
-    return Object.entries(getSettings().colorOverrides)
+/**
+ * The active tab's entries after folder-chip and search filtering.
+ * Color-map tabs yield [name, val] pairs; the portrait tab yields entries.
+ *
+ * @param {'colors'|'names'|'portraits'} tab
+ */
+function filteredEntries(tab) {
+    const { folder, search } = tabUi[tab];
+    const term = search.trim().toLowerCase();
+
+    if (TABS[tab].kind === 'portraitList') {
+        return getSettings().portraits.filter(entry => {
+            const entryFolder = entry?.folder || DEFAULT_FOLDER;
+            if (folder !== ALL_FOLDERS && entryFolder !== folder) return false;
+            return !term || String(entry?.names ?? '').toLowerCase().includes(term);
+        });
+    }
+
+    return Object.entries(getSettings()[TABS[tab].overridesKey])
         .filter(([name, val]) => {
             const parsed = parseColorOverride(val);
-            if (activeFolder !== ALL_FOLDERS && parsed.folder !== activeFolder) return false;
+            if (folder !== ALL_FOLDERS && parsed.folder !== folder) return false;
             return !term || name.toLowerCase().includes(term);
-        });
-}
-
-function filteredPortraitEntries() {
-    const term = portraitSearchTerm.trim().toLowerCase();
-    const activeFolder = activePortraitFolder;
-    return getSettings().portraits
-        .filter(entry => {
-            const folder = entry?.folder || DEFAULT_FOLDER;
-            if (activeFolder !== ALL_FOLDERS && folder !== activeFolder) return false;
-            return !term || String(entry?.names ?? '').toLowerCase().includes(term);
         });
 }
 
@@ -368,73 +441,66 @@ function closeModal() {
 /**
  * Switches the active tab in the floating modal.
  *
- * @param {'colors'|'portraits'} tab
+ * @param {'colors'|'names'|'portraits'} tab
  */
 function switchModalTab(tab) {
     activeModalTab = tab;
+    const d = TABS[tab];
     $('.bj-modal-tab').removeClass('active').filter(`[data-tab="${tab}"]`).addClass('active');
 
-    const isColors = tab === 'colors';
-    $('#bj_modal_search')
-        .val(isColors ? overrideSearchTerm : portraitSearchTerm)
-        .attr('placeholder', isColors ? 'Search color overrides...' : 'Search speaker portraits...');
-
-    $('#bj_modal_add_label').text(isColors ? 'Add Override' : 'Add Portrait');
-    $('#bj_modal_footer_hint').text(
-        isColors
-            ? 'Color overrides take precedence over the automatic palette. Comma-separate names for aliases.'
-            : 'Give any speaker a picture without making a character card. Comma-separate names for aliases.'
-    );
+    $('#bj_modal_search').val(tabUi[tab].search).attr('placeholder', d.searchPlaceholder);
+    $('#bj_modal_add_label').text(d.addLabel);
+    $('#bj_modal_footer_hint').text(d.hint);
 
     renderFolderBar();
     renderActiveModalView();
 }
 
 /**
- * Renders the folder category bar with folder chips and the [+ Folder] button.
+ * Renders the folder category bar with folder chips and the [+ Folder] button
+ * for whichever tab is active. Folder taxonomies stay per-tab (Law 28): a
+ * folder created here belongs to this tab's side only.
  */
 function renderFolderBar() {
     const $bar = $('#bj_modal_folder_bar').empty();
-    const isColors = activeModalTab === 'colors';
-    const currentActive = isColors ? activeColorFolder : activePortraitFolder;
-    const folders = isColors ? getColorFolders() : getPortraitFolders();
+    const tab = activeModalTab;
+    const d = TABS[tab];
+    const ui = tabUi[tab];
+    const folders = getFoldersFor(tab);
+
+    /** Selecting a chip always resets paging — page 3 of an old filter is meaningless. */
+    const selectFolder = (folder) => {
+        ui.folder = folder;
+        ui.page = 0;
+        renderFolderBar();
+        renderActiveModalView();
+    };
 
     // 1. "All" Chip
     const $allChip = $(`
-        <button type="button" class="bj-folder-chip${currentActive === ALL_FOLDERS ? ' active' : ''}" data-folder="${ALL_FOLDERS}" title="Show all entries">
+        <button type="button" class="bj-folder-chip${ui.folder === ALL_FOLDERS ? ' active' : ''}" data-folder="${ALL_FOLDERS}" title="Show all entries">
             <i class="fa-solid fa-layer-group"></i>
             <span>All</span>
         </button>
     `);
-    $allChip.on('click', () => {
-        if (isColors) { activeColorFolder = ALL_FOLDERS; overridePage = 0; }
-        else { activePortraitFolder = ALL_FOLDERS; portraitPage = 0; }
-        renderFolderBar();
-        renderActiveModalView();
-    });
+    $allChip.on('click', () => selectFolder(ALL_FOLDERS));
     $bar.append($allChip);
 
     // 2. "Default" Chip
     const $defaultChip = $(`
-        <button type="button" class="bj-folder-chip${currentActive === DEFAULT_FOLDER ? ' active' : ''}" data-folder="${DEFAULT_FOLDER}" title="Default category">
+        <button type="button" class="bj-folder-chip${ui.folder === DEFAULT_FOLDER ? ' active' : ''}" data-folder="${DEFAULT_FOLDER}" title="Default category">
             <i class="fa-solid fa-folder"></i>
             <span>Default</span>
         </button>
     `);
-    $defaultChip.on('click', () => {
-        if (isColors) { activeColorFolder = DEFAULT_FOLDER; overridePage = 0; }
-        else { activePortraitFolder = DEFAULT_FOLDER; portraitPage = 0; }
-        renderFolderBar();
-        renderActiveModalView();
-    });
+    $defaultChip.on('click', () => selectFolder(DEFAULT_FOLDER));
     $bar.append($defaultChip);
 
     // 3. Custom User Folders
     for (const f of folders) {
         if (f === DEFAULT_FOLDER) continue;
-        const isActive = currentActive === f;
         const $wrap = $(`
-            <div class="bj-folder-chip-wrap${isActive ? ' active' : ''}">
+            <div class="bj-folder-chip-wrap${ui.folder === f ? ' active' : ''}">
                 <button type="button" class="bj-folder-chip" data-folder="${escapeHtml(f)}" title="Category: ${escapeHtml(f)}">
                     <i class="fa-solid fa-folder"></i>
                     <span class="bj-folder-name">${escapeHtml(f)}</span>
@@ -446,11 +512,7 @@ function renderFolderBar() {
         `);
 
         $wrap.find('.bj-folder-chip').on('click', function () {
-            const folder = $(this).data('folder');
-            if (isColors) { activeColorFolder = folder; overridePage = 0; }
-            else { activePortraitFolder = folder; portraitPage = 0; }
-            renderFolderBar();
-            renderActiveModalView();
+            selectFolder($(this).data('folder'));
         });
 
         $wrap.find('.bj-folder-delete').on('click', async function (e) {
@@ -465,16 +527,15 @@ function renderFolderBar() {
             } catch {
                 confirmed = window.confirm(`Delete category "${folder}"? All characters inside will be moved to Default.`);
             }
-            if (confirmed) deleteFolder(folder, isColors ? 'colors' : 'portraits');
+            if (confirmed) deleteFolder(folder, tab);
         });
 
         $bar.append($wrap);
     }
 
     // 4. [+ Folder] Button
-    const tabLabel = isColors ? 'color' : 'portrait';
     const $addBtn = $(`
-        <button type="button" class="bj-btn-folder-add" id="bj_modal_add_folder" title="Create new ${tabLabel} category">
+        <button type="button" class="bj-btn-folder-add" id="bj_modal_add_folder" title="Create new ${d.folderWord.toLowerCase()} category">
             <i class="fa-solid fa-folder-plus"></i>
             <span>+ Folder</span>
         </button>
@@ -482,7 +543,7 @@ function renderFolderBar() {
     $addBtn.on('click', async () => {
         let name = '';
         try {
-            const popup = new Popup(`<h3>Create New ${isColors ? 'Color' : 'Portrait'} Category</h3>`, POPUP_TYPE.INPUT, '', {
+            const popup = new Popup(`<h3>Create New ${d.folderWord} Category</h3>`, POPUP_TYPE.INPUT, '', {
                 okButton: 'Create',
                 cancelButton: 'Cancel',
                 placeholder: 'Category name (e.g. DC, Overlord)',
@@ -492,19 +553,11 @@ function renderFolderBar() {
                 name = result.trim();
             }
         } catch {
-            name = (window.prompt(`Enter new ${isColors ? 'color' : 'portrait'} category name:`) ?? '').trim();
+            name = (window.prompt(`Enter new ${d.folderWord.toLowerCase()} category name:`) ?? '').trim();
         }
 
-        if (name && addFolder(name, isColors ? 'colors' : 'portraits')) {
-            if (isColors) {
-                activeColorFolder = name;
-                overridePage = 0;
-            } else {
-                activePortraitFolder = name;
-                portraitPage = 0;
-            }
-            renderFolderBar();
-            renderActiveModalView();
+        if (name && addFolder(name, tab)) {
+            selectFolder(name);
         }
     });
     $bar.append($addBtn);
@@ -514,94 +567,74 @@ function renderFolderBar() {
  * Renders the active tab's card list into the modal body with pagination.
  */
 function renderActiveModalView() {
-    const isColors = activeModalTab === 'colors';
+    const tab = activeModalTab;
+    const d = TABS[tab];
+    const ui = tabUi[tab];
     const $body = $('#bj_modal_body').empty();
 
-    if (isColors) {
-        const entries = filteredOverrideEntries();
-        const pageCount = Math.max(1, Math.ceil(entries.length / OVERRIDES_PER_PAGE));
-        overridePage = Math.min(Math.max(0, overridePage), pageCount - 1);
+    const entries = filteredEntries(tab);
+    const pageCount = Math.max(1, Math.ceil(entries.length / d.perPage));
+    ui.page = Math.min(Math.max(0, ui.page), pageCount - 1);
 
-        if (entries.length === 0) {
-            const activeFolder = activeColorFolder;
-            const folderText = activeFolder === ALL_FOLDERS ? '' : ` in ${escapeHtml(activeFolder)}`;
-            $body.append(`
-                <div class="bj-empty-state">
-                    <i class="fa-solid fa-palette bj-empty-icon"></i>
-                    <div class="bj-empty-title">No color overrides found${folderText}</div>
-                    <div class="bj-empty-desc">Click "+ Add Override" to define a custom color for any speaker.</div>
-                </div>
-            `);
-        } else {
-            const start = overridePage * OVERRIDES_PER_PAGE;
-            for (const [name, hex] of entries.slice(start, start + OVERRIDES_PER_PAGE)) {
-                $body.append(makeOverrideCard(name, hex));
-            }
-        }
-
-        $('#bj_modal_page_label').text(`${overridePage + 1} / ${pageCount}`);
-        $('#bj_modal_prev').toggleClass('disabled', overridePage <= 0);
-        $('#bj_modal_next').toggleClass('disabled', overridePage >= pageCount - 1);
-
-        const total = Object.keys(getSettings().colorOverrides).length;
-        const activeFolder = activeColorFolder;
-        const inFolder = entries.length;
-        const folderNote = activeFolder === ALL_FOLDERS ? '' : ` in ${activeFolder}`;
-        $('#bj_modal_footer_count').text(`${inFolder} override${inFolder === 1 ? '' : 's'}${folderNote} (${total} total)`);
+    if (entries.length === 0) {
+        const folderText = ui.folder === ALL_FOLDERS ? '' : ` in ${escapeHtml(ui.folder)}`;
+        $body.append(`
+            <div class="bj-empty-state">
+                <i class="fa-solid ${d.emptyIcon} bj-empty-icon"></i>
+                <div class="bj-empty-title">${d.emptyTitle}${folderText}</div>
+                <div class="bj-empty-desc">${d.emptyDesc}</div>
+            </div>
+        `);
     } else {
-        const entries = filteredPortraitEntries();
-        const pageCount = Math.max(1, Math.ceil(entries.length / PORTRAITS_PER_PAGE));
-        portraitPage = Math.min(Math.max(0, portraitPage), pageCount - 1);
-
-        if (entries.length === 0) {
-            const activeFolder = activePortraitFolder;
-            const folderText = activeFolder === ALL_FOLDERS ? '' : ` in ${escapeHtml(activeFolder)}`;
-            $body.append(`
-                <div class="bj-empty-state">
-                    <i class="fa-solid fa-image-portrait bj-empty-icon"></i>
-                    <div class="bj-empty-title">No portraits found${folderText}</div>
-                    <div class="bj-empty-desc">Click "+ Add Portrait" to assign an avatar thumbnail to any speaker.</div>
-                </div>
-            `);
-        } else {
-            const start = portraitPage * PORTRAITS_PER_PAGE;
-            for (const entry of entries.slice(start, start + PORTRAITS_PER_PAGE)) {
-                $body.append(makePortraitCard(entry));
-            }
+        const start = ui.page * d.perPage;
+        for (const item of entries.slice(start, start + d.perPage)) {
+            if (d.kind === 'portraitList') $body.append(makePortraitCard(item));
+            else $body.append(makeOverrideCard(tab, item[0], item[1]));
         }
-
-        $('#bj_modal_page_label').text(`${portraitPage + 1} / ${pageCount}`);
-        $('#bj_modal_prev').toggleClass('disabled', portraitPage <= 0);
-        $('#bj_modal_next').toggleClass('disabled', portraitPage >= pageCount - 1);
-
-        const total = getSettings().portraits.length;
-        const activeFolder = activePortraitFolder;
-        const inFolder = entries.length;
-        const folderNote = activeFolder === ALL_FOLDERS ? '' : ` in ${activeFolder}`;
-        $('#bj_modal_footer_count').text(`${inFolder} portrait${inFolder === 1 ? '' : 's'}${folderNote} (${total} total)`);
     }
+
+    $('#bj_modal_page_label').text(`${ui.page + 1} / ${pageCount}`);
+    $('#bj_modal_prev').toggleClass('disabled', ui.page <= 0);
+    $('#bj_modal_next').toggleClass('disabled', ui.page >= pageCount - 1);
+
+    const total = d.kind === 'portraitList'
+        ? getSettings().portraits.length
+        : Object.keys(getSettings()[d.overridesKey]).length;
+    const folderNote = ui.folder === ALL_FOLDERS ? '' : ` in ${ui.folder}`;
+    $('#bj_modal_footer_count').text(`${entries.length} ${d.itemWord}${entries.length === 1 ? '' : 's'}${folderNote} (${total} total)`);
 }
 
 /**
- * Builds one color override card.
+ * Builds one color-map card — a dialogue color on the 'colors' tab, a name-tag
+ * color on the 'names' tab. Name cards lead with a live sample showing the
+ * pairing (name tag color vs. that speaker's dialogue color) since that
+ * pairing is the whole point of the tab.
  *
- * @param {string} name Speaker name
+ * @param {'colors'|'names'} tab
+ * @param {string} name Speaker name(s)
  * @param {string|object} val Color hex or { hex, folder }
  * @returns {jQuery}
  */
-function makeOverrideCard(name, val) {
+function makeOverrideCard(tab, name, val) {
+    const d = TABS[tab];
+    const isNames = tab === 'names';
     const parsed = parseColorOverride(val);
     let currentKey = name;
     let currentColor = parsed.hex;
     let currentFolder = parsed.folder;
 
-    const folders = getColorFolders();
+    const folders = getMapFolders(tab);
     const optionsHtml = folders.map(f =>
         `<option value="${escapeHtml(f)}"${f === currentFolder ? ' selected' : ''}>${escapeHtml(f)}</option>`
     ).join('');
 
     const $card = $(`
-        <div class="bj-item-card bj-color-card">
+        <div class="bj-item-card ${d.cardClass}">
+            ${isNames ? `
+            <div class="bj-name-sample" title="Live preview — name tag color vs. dialogue color">
+                <span class="bj-name-sample-tag"></span>
+                <span class="bj-name-sample-text">&quot;…&quot;</span>
+            </div>` : ''}
             <input type="text" class="bj-input bj-override-name" placeholder="Speaker name(s)">
             <select class="bj-folder-select" title="Move to category">
                 ${optionsHtml}
@@ -610,7 +643,7 @@ function makeOverrideCard(name, val) {
                 <input type="color" class="bj-color-picker bj-override-color">
                 <input type="text" class="bj-input bj-hex-input" spellcheck="false" autocomplete="off" maxlength="7" title="Type a hex color (#rrggbb) and press Enter">
             </div>
-            <button type="button" class="bj-btn-icon bj-btn-danger bj-override-remove" title="Remove override">
+            <button type="button" class="bj-btn-icon bj-btn-danger bj-override-remove" title="Remove ${d.itemWord}">
                 <i class="fa-solid fa-trash-can"></i>
             </button>
         </div>
@@ -620,12 +653,28 @@ function makeOverrideCard(name, val) {
     const $colorInput = $card.find('.bj-override-color').val(currentColor);
     const $hexInput = $card.find('.bj-hex-input').val(currentColor);
     const $folderSelect = $card.find('.bj-folder-select');
+    const $sampleTag = $card.find('.bj-name-sample-tag');
+    const $sampleText = $card.find('.bj-name-sample-text');
+
+    /** Repaints the name-card sample: tag shows this color, the quote shows
+     *  the speaker's dialogue color (override or palette hash). */
+    const refreshSample = () => {
+        if (!isNames) return;
+        const displayName = currentKey.split(',')[0].trim() || 'Name';
+        $sampleTag.text(`${displayName}:`).css('color', currentColor);
+        $sampleText.css('color', resolveSpeakerColor(displayName, getSettings()));
+    };
+    refreshSample();
+
+    const saveEntry = () => {
+        getSettings()[d.overridesKey][currentKey] = { hex: currentColor, folder: currentFolder };
+        persistAndRedecorate();
+    };
 
     $folderSelect.on('change', function () {
         currentFolder = this.value;
-        getSettings().colorOverrides[currentKey] = { hex: currentColor, folder: currentFolder };
-        persistAndRedecorate();
-        if (activeColorFolder !== ALL_FOLDERS && activeColorFolder !== currentFolder) {
+        saveEntry();
+        if (tabUi[tab].folder !== ALL_FOLDERS && tabUi[tab].folder !== currentFolder) {
             renderActiveModalView();
         }
     });
@@ -634,22 +683,22 @@ function makeOverrideCard(name, val) {
     $colorInput.on('input change', function () {
         $hexInput.val(this.value);
         currentColor = this.value;
-        getSettings().colorOverrides[currentKey] = { hex: currentColor, folder: currentFolder };
-        persistAndRedecorate();
+        refreshSample();
+        saveEntry();
     });
 
     // Typed hex commits on Enter or blur. A missing '#' is forgiven; anything
     // that is not a color reverts to the one in force.
     const commitHex = () => {
-        let val = String($hexInput.val() ?? '').trim();
-        if (/^[0-9a-f]{6}$/i.test(val)) val = `#${val}`;
-        if (HEX_COLOR.test(val)) {
-            val = val.toLowerCase();
-            $hexInput.val(val);
-            $colorInput.val(val);
-            currentColor = val;
-            getSettings().colorOverrides[currentKey] = { hex: currentColor, folder: currentFolder };
-            persistAndRedecorate();
+        let typed = String($hexInput.val() ?? '').trim();
+        if (/^[0-9a-f]{6}$/i.test(typed)) typed = `#${typed}`;
+        if (HEX_COLOR.test(typed)) {
+            typed = typed.toLowerCase();
+            $hexInput.val(typed);
+            $colorInput.val(typed);
+            currentColor = typed;
+            refreshSample();
+            saveEntry();
         } else {
             $hexInput.val($colorInput.val());
         }
@@ -663,14 +712,15 @@ function makeOverrideCard(name, val) {
         const next = this.value.trim();
         if (!next || next === currentKey) { this.value = currentKey; return; }
         const settings = getSettings();
-        delete settings.colorOverrides[currentKey];
+        delete settings[d.overridesKey][currentKey];
         currentKey = next;
-        settings.colorOverrides[currentKey] = { hex: currentColor, folder: currentFolder };
+        settings[d.overridesKey][currentKey] = { hex: currentColor, folder: currentFolder };
+        refreshSample();
         persistAndRedecorate();
     });
 
     $card.find('.bj-override-remove').on('click', () => {
-        delete getSettings().colorOverrides[currentKey];
+        delete getSettings()[d.overridesKey][currentKey];
         persistAndRedecorate();
         renderActiveModalView();
     });
@@ -714,7 +764,7 @@ function makePortraitCard(entry) {
     $card.find('.bj-folder-select').on('change', function () {
         entry.folder = this.value;
         persistAndRedecorate();
-        if (activePortraitFolder !== ALL_FOLDERS && activePortraitFolder !== entry.folder) {
+        if (tabUi.portraits.folder !== ALL_FOLDERS && tabUi.portraits.folder !== entry.folder) {
             renderActiveModalView();
         }
     });
@@ -770,67 +820,51 @@ function bindModalEvents() {
 
     // Live search
     $('#bj_modal_search').on('input', function () {
-        if (activeModalTab === 'colors') {
-            overrideSearchTerm = this.value;
-            overridePage = 0;
-        } else {
-            portraitSearchTerm = this.value;
-            portraitPage = 0;
-        }
+        const ui = tabUi[activeModalTab];
+        ui.search = this.value;
+        ui.page = 0;
         renderActiveModalView();
     });
 
     // Pagination
     $('#bj_modal_prev').on('click', () => {
-        if (activeModalTab === 'colors') {
-            if (overridePage > 0) { overridePage--; renderActiveModalView(); }
-        } else {
-            if (portraitPage > 0) { portraitPage--; renderActiveModalView(); }
-        }
+        const ui = tabUi[activeModalTab];
+        if (ui.page > 0) { ui.page--; renderActiveModalView(); }
     });
 
     $('#bj_modal_next').on('click', () => {
-        if (activeModalTab === 'colors') {
-            const pageCount = Math.max(1, Math.ceil(filteredOverrideEntries().length / OVERRIDES_PER_PAGE));
-            if (overridePage < pageCount - 1) { overridePage++; renderActiveModalView(); }
-        } else {
-            const pageCount = Math.max(1, Math.ceil(filteredPortraitEntries().length / PORTRAITS_PER_PAGE));
-            if (portraitPage < pageCount - 1) { portraitPage++; renderActiveModalView(); }
-        }
+        const tab = activeModalTab;
+        const ui = tabUi[tab];
+        const pageCount = Math.max(1, Math.ceil(filteredEntries(tab).length / TABS[tab].perPage));
+        if (ui.page < pageCount - 1) { ui.page++; renderActiveModalView(); }
     });
 
-    // Add new item
+    // Add new item — color-map tabs add to their own map, portraits to the list.
+    // A new entry joins the folder currently being viewed (Default when on All).
     $('#bj_modal_add').on('click', () => {
-        if (activeModalTab === 'colors') {
-            const map = getSettings().colorOverrides;
-            const targetFolder = (activeColorFolder === ALL_FOLDERS || !activeColorFolder)
-                ? DEFAULT_FOLDER
-                : activeColorFolder;
+        const tab = activeModalTab;
+        const d = TABS[tab];
+        const ui = tabUi[tab];
+        const settings = getSettings();
+        const targetFolder = (ui.folder === ALL_FOLDERS || !ui.folder) ? DEFAULT_FOLDER : ui.folder;
+
+        if (d.kind === 'portraitList') {
+            settings.portraits.push({ names: 'New speaker', image: PORTRAIT_PLACEHOLDER, folder: targetFolder });
+        } else {
+            const map = settings[d.overridesKey];
             let name = 'New speaker';
             let n = 2;
             while (map[name] !== undefined) name = `New speaker ${n++}`;
             map[name] = { hex: '#b39ddb', folder: targetFolder };
-            overrideSearchTerm = '';
-            $('#bj_modal_search').val('');
-            const entries = filteredOverrideEntries();
-            overridePage = Math.max(0, Math.ceil(entries.length / OVERRIDES_PER_PAGE) - 1);
-            renderActiveModalView();
-            $('#bj_modal_body .bj-color-card').last().find('.bj-override-name').trigger('focus').select();
-            persistAndRedecorate();
-        } else {
-            const list = getSettings().portraits;
-            const targetFolder = (activePortraitFolder === ALL_FOLDERS || !activePortraitFolder)
-                ? DEFAULT_FOLDER
-                : activePortraitFolder;
-            list.push({ names: 'New speaker', image: PORTRAIT_PLACEHOLDER, folder: targetFolder });
-            portraitSearchTerm = '';
-            $('#bj_modal_search').val('');
-            const entries = filteredPortraitEntries();
-            portraitPage = Math.max(0, Math.ceil(entries.length / PORTRAITS_PER_PAGE) - 1);
-            renderActiveModalView();
-            $('#bj_modal_body .bj-portrait-card').last().find('.bj-portrait-names').trigger('focus').select();
-            persistAndRedecorate();
         }
+
+        // Land on the new entry's page with any search cleared, ready to type.
+        ui.search = '';
+        $('#bj_modal_search').val('');
+        ui.page = Math.max(0, Math.ceil(filteredEntries(tab).length / d.perPage) - 1);
+        renderActiveModalView();
+        $(`#bj_modal_body .${d.cardClass}`).last().find(d.focusField).trigger('focus').select();
+        persistAndRedecorate();
     });
 }
 
@@ -866,6 +900,7 @@ async function initSettingsPanel() {
 
     // Drawer launch buttons
     $('#bj_drawer_open_colors').on('click', () => openModal('colors'));
+    $('#bj_drawer_open_names').on('click', () => openModal('names'));
     $('#bj_drawer_open_portraits').on('click', () => openModal('portraits'));
 }
 

@@ -16,6 +16,9 @@ Vibe coded with GLM 5.3 and Gemini 3.8 flash works best with BIGJOOKS lite prese
 - Every speaker gets a stable, deterministic pastel color — same name, same
   color, in every message and every chat, with zero configuration.
 - Manual **color overrides**: pick from the swatch or type an exact hex code.
+- **Separate name colors** *(new in 0.9.0)*: give the speaker tag its own
+  color, independent of the dialogue color — `**Diana**:` in gold while her
+  speech stays lavender. Works for bold and plain-text speakers alike.
 - **Comma-separated aliases**: `Wonder Woman, Diana, Diana Prince` — all her
   names share one color. Matching is case-insensitive.
 
@@ -33,8 +36,9 @@ Four styles: thin, dashed, fade, none.
 
 ### 🗂️ A Real Library
 Manage everything in a floating dark-glass window (ST-Copilot aesthetic):
-- Tabs for **Color Overrides** and **Speaker Portraits**
+- Tabs for **Dialogue Colors**, **Name Colors**, and **Portraits**
 - **Independent folder categories** per tab (e.g. `DC`, `Overlord`, `Pathfinder`)
+- Name-color cards show a live preview of the name/dialogue pairing
 - Live search, pagination, entry counts
 - Everything saves instantly — closing the window loses nothing
 
@@ -63,7 +67,7 @@ Reload SillyTavern.
 1. Make sure your preset asks the model for script-format dialogue
    (`**Name**: "..."` per paragraph). Most script-format presets already do.
 2. Open **Extensions → BIGJOOKS Styler** — it works out of the box.
-3. Click **Color library** or **Portrait gallery** to customize.
+3. Click **Dialogue colors**, **Name colors**, or **Portraits** to customize.
 
 ## Requirements & Notes
 - SillyTavern 1.18+

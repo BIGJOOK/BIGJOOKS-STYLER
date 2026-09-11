@@ -4,6 +4,10 @@ import { user_avatar } from '../../../personas.js';
 /** CSS custom property carrying each speech block's speaker color. */
 const COLOR_PROP = '--bj-color';
 
+/** CSS custom property for a name-tag color distinct from the dialogue color.
+ *  Only set when a name override exists; otherwise the tag simply inherits. */
+const NAME_PROP = '--bj-name-color';
+
 /** Every class this extension can leave behind — the clear pass removes them all. */
 const ALL_CLASSES = [
     'bj-speech', 'bj-colored', 'bj-name',
@@ -70,6 +74,28 @@ function hashNameToPalette(name) {
     let index = 0;
     for (const ch of String(name)) index = (index * 31 + ch.codePointAt(0)) % PALETTE.length;
     return PALETTE[index];
+}
+
+/**
+ * A name-tag color explicitly set apart from the dialogue color, or null.
+ * Alias matching mirrors resolveSpeakerColor; null means "no separate name
+ * color" and the caller leaves the tag inheriting the speaker color.
+ *
+ * @param {string} speaker
+ * @param {object} settings
+ * @returns {string|null} Hex color, or null when unset.
+ */
+export function resolveSpeakerNameColor(speaker, settings) {
+    const wanted = String(speaker).toLowerCase();
+    const overrides = settings?.nameColorOverrides ?? {};
+    for (const [names, val] of Object.entries(overrides)) {
+        const hex = typeof val === 'object' && val !== null ? val.hex : val;
+        if (!HEX_COLOR.test(String(hex))) continue;
+        for (const raw of String(names).split(',')) {
+            if (raw.trim().toLowerCase() === wanted) return hex;
+        }
+    }
+    return null;
 }
 
 /**
@@ -155,7 +181,8 @@ function buildSpeakerCache(ctx, settings) {
  *
  * Paragraph-initial only either way, so names mid-paragraph never turn
  * narration into speech. tagEl is the bold tag when there was one, null for
- * plain speakers (their bare name simply inherits the paragraph's color).
+ * plain speakers (decorateMessage wraps their bare name when it needs a
+ * target for a separate name color).
  *
  * @param {Element} mesTextEl
  * @returns {{ block: Element, tagEl: Element|null, speaker: string }[]}
@@ -215,6 +242,28 @@ function colonFollows(strong, rawText) {
     return false;
 }
 
+/**
+ * Wraps a plain-text speaker's `Name:` lead (colon included) in a span so a
+ * separate name color has an element to cling to — bold speakers already have
+ * their tag. The clear pass unwraps it, restoring the exact original text.
+ *
+ * @param {Element} block The speech paragraph.
+ * @returns {Element|null} The new span, or null when nothing could be wrapped.
+ */
+function wrapPlainName(block) {
+    const first = firstMeaningfulChild(block);
+    if (!first || first.nodeType !== Node.TEXT_NODE) return null;
+    const match = first.textContent.match(PLAIN_SPEAKER);
+    if (!match) return null;
+    const span = document.createElement('span');
+    span.className = 'bj-name';
+    span.textContent = match[0];
+    first.textContent = first.textContent.slice(match[0].length);
+    block.insertBefore(span, first);
+    if (!first.textContent) first.remove();
+    return span;
+}
+
 /** Avatar size stops: 1 Small · 2 Medium · 3 Large · 4 Extra large · 5 Super large. */
 const AVATAR_SIZE_MIN = 1;
 const AVATAR_SIZE_MAX = 5;
@@ -258,14 +307,23 @@ export function decorateMessage(mesEl, settings) {
     const dividerStyle = DIVIDER_STYLES.has(settings.dividerStyle) ? settings.dividerStyle : 'thin';
     const avatarSize = Math.min(AVATAR_SIZE_MAX, Math.max(AVATAR_SIZE_MIN, Number(settings.avatarSize) || AVATAR_SIZE_DEFAULT));
 
-    for (const { block, tagEl, speaker } of detectSpeechBlocks(mesTextEl)) {
+    for (const { block, tagEl: boldTag, speaker } of detectSpeechBlocks(mesTextEl)) {
         block.classList.add('bj-speech');
 
+        let nameHex = null;
         if (settings.colorSpeech) {
             block.classList.add('bj-colored');
             block.style.setProperty(COLOR_PROP, resolveSpeakerColor(speaker, settings));
+            // A name override only rides along when coloring is on at all;
+            // without one the tag inherits the speaker color as before.
+            nameHex = resolveSpeakerNameColor(speaker, settings);
+            if (nameHex) block.style.setProperty(NAME_PROP, nameHex);
         }
 
+        // Bold speakers carry their name in a tag already; plain-text speakers
+        // get theirs wrapped — but only when a name color actually needs a
+        // target, so chats that never use the feature gain no extra DOM.
+        const tagEl = boldTag ?? (nameHex ? wrapPlainName(block) : null);
         if (tagEl) tagEl.classList.add('bj-name');
 
         if (settings.showAvatars) {
@@ -289,10 +347,25 @@ export function clearMessageDecorations(mesTextEl) {
 
     mesTextEl.querySelectorAll('img.bj-avatar').forEach(img => img.remove());
 
+    // Plain-text speakers had their `Name:` lead wrapped in a span; unwrap it
+    // first, while the class still marks which spans are ours (bold tags are
+    // STRONG elements and never match this selector). normalize() re-merges
+    // the split text node so the next detection pass sees the original line.
+    mesTextEl.querySelectorAll('span.bj-name').forEach(span => {
+        const parent = span.parentNode;
+        if (!parent) return;
+        parent.replaceChild(document.createTextNode(span.textContent), span);
+        parent.normalize();
+    });
+
     mesTextEl.querySelectorAll('.bj-speech, .bj-colored, .bj-name, .bj-div, .bj-div-thin, .bj-div-dashed, .bj-div-fade')
         .forEach(el => el.classList.remove(...ALL_CLASSES));
 
-    mesTextEl.querySelectorAll('[style*="--bj-color"]').forEach(el => el.style.removeProperty(COLOR_PROP));
+    mesTextEl.querySelectorAll('[style*="--bj-color"], [style*="--bj-name-color"]')
+        .forEach(el => {
+            el.style.removeProperty(COLOR_PROP);
+            el.style.removeProperty(NAME_PROP);
+        });
 }
 
 /** Bumped by every chat-wide pass; an in-flight batch whose token is stale aborts. */

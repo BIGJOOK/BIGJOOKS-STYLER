@@ -17,8 +17,12 @@
     color: var(--bj-color, inherit);
 }
 
-#chat .mes .mes_text p.bj-colored strong.bj-name {
-    color: inherit;
+/* Name tags: bold tags and wrapped plain-text names alike. A name override
+   rides --bj-name-color (set on the paragraph); without one the var is unset
+   and the tag inherits the speaker/dialogue color exactly as before. */
+#chat .mes .mes_text p.bj-colored strong.bj-name,
+#chat .mes .mes_text p.bj-colored span.bj-name {
+    color: var(--bj-name-color, inherit);
 }
 
 /* SillyTavern wraps quoted dialogue ("...") in <q> tags and hardcodes
@@ -658,6 +662,39 @@ button.bj-folder-chip:not(.bj-folder-chip-wrap button).active {
 .bj-color-card .bj-override-name {
     flex: 1 1 auto;
     min-width: 0;
+}
+
+/* Name-color cards share the color-card layout; the sample leads the row the
+   way a portrait thumbnail does, so the name/dialogue pairing reads at a
+   glance. Colors themselves are painted inline by the card builder. */
+.bj-name-card .bj-override-name {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.bj-name-sample {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    max-width: 150px;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border: var(--bj-input-border);
+    border-radius: 6px;
+    padding: 5px 9px;
+}
+
+.bj-name-sample .bj-name-sample-tag {
+    font-weight: 700;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.bj-name-sample .bj-name-sample-text {
+    opacity: 0.9;
 }
 
 .bj-color-input-wrap {
