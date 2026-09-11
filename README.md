@@ -53,13 +53,13 @@ Manage everything in a floating dark-glass window (ST-Copilot aesthetic):
 
 **Method 1 — SillyTavern Extension Installer**
 1. SillyTavern → **Extensions** → **Install Extension**
-2. Paste: `https://github.com/BIGJOOK/BIGJOOKS-STYLER`
+2. Paste: `https://github.com/BIGJOOK/bigjooks-styler`
 3. Save / Install, then hard-refresh (Ctrl+F5).
 
 **Method 2 — Manual clone**
 ```bash
 cd SillyTavern/public/scripts/extensions/third-party
-git clone https://github.com/BIGJOOK/BIGJOOKS-STYLER bigjooks-styler
+git clone https://github.com/BIGJOOK/bigjooks-styler bigjooks-styler
 ```
 Reload SillyTavern.
 
