@@ -264,6 +264,38 @@ function wrapPlainName(block) {
     return span;
 }
 
+/**
+ * The bold `**Name**: "…"` form leaves its colon in a bare text node after
+ * the tag — outside the name color's reach, so it would stay the dialogue
+ * color. Wraps just that colon in a span so it joins the name color; any
+ * whitespace before it stays put. Self-guarding: when the colon lives inside
+ * the tag (`**Name:**`) there is nothing outside to wrap and this is a no-op.
+ *
+ * @param {Element} tagEl The bold speaker tag.
+ * @returns {Element|null} The wrapped colon span, or null.
+ */
+function wrapOutsideColon(tagEl) {
+    const parent = tagEl.parentNode;
+    if (!parent) return null;
+    for (let s = tagEl.nextSibling; s; s = s.nextSibling) {
+        if (s.nodeType === Node.COMMENT_NODE) continue;
+        if (s.nodeType !== Node.TEXT_NODE) return null;
+        const match = s.textContent.match(/^\s*:/);
+        if (!match) return null;
+        const span = document.createElement('span');
+        span.className = 'bj-name';
+        span.textContent = ':';
+        const before = s.textContent.slice(0, match[0].length - 1);
+        const rest = s.textContent.slice(match[0].length);
+        if (before) parent.insertBefore(document.createTextNode(before), s);
+        parent.insertBefore(span, s);
+        if (rest) s.textContent = rest;
+        else s.remove();
+        return span;
+    }
+    return null;
+}
+
 /** Avatar size stops: 1 Small · 2 Medium · 3 Large · 4 Extra large · 5 Super large. */
 const AVATAR_SIZE_MIN = 1;
 const AVATAR_SIZE_MAX = 5;
@@ -326,6 +358,11 @@ export function decorateMessage(mesEl, settings) {
         const tagEl = boldTag ?? (nameHex ? wrapPlainName(block) : null);
         if (tagEl) tagEl.classList.add('bj-name');
 
+        // `**Name**: "…"` leaves the colon outside the tag in a bare text
+        // node, where it would keep the dialogue color — wrap it too when a
+        // name color is in force.
+        if (boldTag && nameHex) wrapOutsideColon(boldTag);
+
         if (settings.showAvatars) {
             const url = resolveSpeakerAvatar(speaker, mes, cache);
             if (url) block.insertBefore(makeAvatar(speaker, url, avatarSize), block.firstChild);
@@ -347,10 +384,11 @@ export function clearMessageDecorations(mesTextEl) {
 
     mesTextEl.querySelectorAll('img.bj-avatar').forEach(img => img.remove());
 
-    // Plain-text speakers had their `Name:` lead wrapped in a span; unwrap it
-    // first, while the class still marks which spans are ours (bold tags are
-    // STRONG elements and never match this selector). normalize() re-merges
-    // the split text node so the next detection pass sees the original line.
+    // Plain-text `Name:` leads and the outside colons of `**Name**:` lines
+    // were wrapped in spans; unwrap them first, while the class still marks
+    // which spans are ours (bold tags are STRONG elements and never match
+    // this selector). normalize() re-merges the split text nodes so the next
+    // detection pass sees the original line.
     mesTextEl.querySelectorAll('span.bj-name').forEach(span => {
         const parent = span.parentNode;
         if (!parent) return;
